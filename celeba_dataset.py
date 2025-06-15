@@ -95,11 +95,10 @@ class CelebA_Dataset(Dataset):
                 
         print(f"Loaded CelebA dataset with {len(self.attr_df)} images and {len(self.selected_attrs)} selected attributes")
         
-        # Base transforms
         self.base_transform = transforms.Compose([
-            transforms.Resize(self.image_size),
-            transforms.CenterCrop(self.image_size),
+            transforms.Resize((64, 64)),
             transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
     
     def __len__(self):
@@ -121,7 +120,6 @@ class CelebA_Dataset(Dataset):
         try:
             image = Image.open(img_path).convert('RGB')
             image = self.base_transform(image)
-            print(f"Image {idx} resolution: {image.shape}")
         except Exception as e:
             raise IOError(f"Error loading image {img_path}: {str(e)}")
         
