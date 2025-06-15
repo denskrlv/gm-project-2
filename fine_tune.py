@@ -21,8 +21,8 @@ def main():
     print(f"Script directory is: {script_dir}")
 
     # Construct absolute paths to your data directories
-    attr_file_path = "/Users/deniskrylov/Downloads/archive/list_attr_celeba.csv"
-    root_dir_path = "/Users/deniskrylov/Downloads/archive/img_align_celeba/img_align_celeba"
+    attr_file_path = "/home/deniskrylov/.cache/kagglehub/datasets/kushsheth/face-vae/versions/1/list_attr_celeba.csv"
+    root_dir_path = "/home/deniskrylov/.cache/kagglehub/datasets/kushsheth/face-vae/versions/1/img_align_celeba/img_align_celeba"
 
     print(f"Expecting attributes CSV at: {attr_file_path}")
     print(f"Expecting image directory at: {root_dir_path}")
