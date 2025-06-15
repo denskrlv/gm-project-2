@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
+from torch.cuda.amp import autocast, GradScaler
 
 from celeba_dataset import CelebA_Dataset, get_celeba_dataloader
 
@@ -29,7 +30,7 @@ def main():
 
     # Create and configure model
     options = model_and_diffusion_defaults()
-    options['use_fp16'] = False
+    options['use_fp16'] = True
     options['timestep_respacing'] = '100'
 
     print("Creating model and diffusion...")
@@ -61,11 +62,15 @@ def main():
     torch.save(model.state_dict(), "glide_celeba_finetuned.pt")
     print("Training complete and model saved!")
 
-def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10):
+def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10, start_epoch=0):
     """Train GLIDE on the CelebA dataset with tqdm progress tracking"""
     
+    # Set up mixed precision training if fp16 is enabled
+    from torch.cuda.amp import autocast, GradScaler
+    scaler = GradScaler() if options['use_fp16'] and device.type == 'cuda' else None
+    
     # Outer loop for epochs with tqdm
-    for epoch in tqdm(range(num_epochs), desc="Epochs", position=0):
+    for epoch in tqdm(range(start_epoch, num_epochs), desc="Epochs", position=0):
         total_loss = 0
         batch_count = 0
         
@@ -87,33 +92,38 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
             token_data = [model.tokenizer.padded_tokens_and_mask(t, options['text_ctx']) 
                           for t in tokens]
             
-            # Unpack token data
+            # Unpack token data and ensure correct dtype
             tokens_batch = torch.tensor([data[0] for data in token_data], device=device)
             mask_batch = torch.tensor([data[1] for data in token_data], device=device)
             
-            # Forward diffusion process
+            # Forward diffusion process - add noise to images
             t = torch.randint(0, diffusion.num_timesteps, (images.shape[0],), device=device)
             noise = torch.randn_like(images)
             noisy_images = diffusion.q_sample(images, t, noise=noise)
             
-            # Model prediction
-            model_output = model(noisy_images, t, tokens=tokens_batch, mask=mask_batch)
+            # Use autocast for mixed precision training
+            with autocast(enabled=options['use_fp16'] and device.type == 'cuda'):
+                # Model prediction
+                model_output = model(noisy_images, t, tokens=tokens_batch, mask=mask_batch)
+                # Loss calculation
+                loss = torch.nn.functional.mse_loss(model_output, noise)
             
-            # Loss calculation (predict the noise)
-            loss = torch.nn.functional.mse_loss(model_output, noise)
-            
-            # Optimization step
+            # Optimization step with proper mixed precision handling
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
             
-            # Update statistics
-            current_loss = loss.item()
-            total_loss += current_loss
+            # Update progress metrics
+            total_loss += loss.item()
             batch_count += 1
             
-            # Update progress bar description with current loss
-            batch_progress.set_postfix({"loss": f"{current_loss:.6f}"})
+            # Update progress bar with current loss
+            batch_progress.set_postfix({"loss": loss.item()})
         
         # Calculate and display epoch average loss
         avg_loss = total_loss / batch_count
@@ -128,7 +138,7 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
             }, checkpoint_path)
-            tqdm.write(f"Saved checkpoint to {checkpoint_path}")
+            tqdm.write(f"Checkpoint saved to {checkpoint_path}")
 
 if __name__ == "__main__":
     main()
