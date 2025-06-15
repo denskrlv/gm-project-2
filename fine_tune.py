@@ -7,6 +7,7 @@ from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
 from torch.cuda.amp import autocast, GradScaler
+from torchvision.transforms.functional import resize
 
 from celeba_dataset import CelebA_Dataset, get_celeba_dataloader
 
@@ -85,6 +86,7 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         for batch in batch_progress:
             # Get your images and prompts
             images, prompts = batch
+            images = resize(images, [64, 64])
             images = images.to(device)
             
             # Process text tokens

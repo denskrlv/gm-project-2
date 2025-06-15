@@ -95,10 +95,11 @@ class CelebA_Dataset(Dataset):
                 
         print(f"Loaded CelebA dataset with {len(self.attr_df)} images and {len(self.selected_attrs)} selected attributes")
         
+        # Base transforms
         self.base_transform = transforms.Compose([
-            transforms.Resize((64, 64)),
+            transforms.Resize(self.image_size),
+            transforms.CenterCrop(self.image_size),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
     
     def __len__(self):
