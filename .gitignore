@@ -1,0 +1,7 @@
+__pycache__/
+*.egg-info/
+.DS_Store
+.venv
+glide_model_cache
+clip_model_cache
+archive
