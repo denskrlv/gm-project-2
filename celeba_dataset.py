@@ -121,6 +121,7 @@ class CelebA_Dataset(Dataset):
         try:
             image = Image.open(img_path).convert('RGB')
             image = self.base_transform(image)
+            print(f"Image {index} resolution: {image.shape}")
         except Exception as e:
             raise IOError(f"Error loading image {img_path}: {str(e)}")
         
