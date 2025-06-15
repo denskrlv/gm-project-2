@@ -13,7 +13,7 @@ filelock==3.18.0
 fonttools==4.58.2
 fsspec==2025.5.1
 ftfy==6.3.1
-glide-text2im @ file:///Users/deniskrylov/Developer/University/gm-project/glide-text2im
+glide-text2im @ file:///glide-text2im
 hf-xet==1.1.3
 huggingface-hub==0.32.5
 idna==3.10
