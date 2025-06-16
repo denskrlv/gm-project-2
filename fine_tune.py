@@ -47,7 +47,7 @@ def main():
     dataloader = get_celeba_dataloader(
         attr_file=attr_file_path,
         root_dir=root_dir_path,
-        batch_size=48,
+        batch_size=32,
         num_workers=0, # Keep this at 0 for now
     )
 
