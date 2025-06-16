@@ -6,8 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
-from torch.cuda.amp import GradScaler
-from torch.amp import autocast
+from torch.amp import autocast, GradScaler
 from torchvision.transforms.functional import resize
 
 from celeba_dataset import CelebA_Dataset, get_celeba_dataloader
