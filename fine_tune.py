@@ -47,7 +47,7 @@ def main():
     dataloader = get_celeba_dataloader(
         attr_file=attr_file_path,
         root_dir=root_dir_path,
-        batch_size=4,
+        batch_size=16,
         num_workers=0, # Keep this at 0 for now
     )
 
@@ -86,7 +86,7 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         for batch in batch_progress:
             # Get your images and prompts
             images, prompts = batch
-            images = resize(images, [128, 128])
+            images = resize(images, [64, 64])
             images = images.to(device)
             
             # Process text tokens
