@@ -86,7 +86,9 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         for batch in batch_progress:
             # Get your images and prompts
             images, prompts = batch
+            print(f"Original image shape: {images.shape}")
             images = resize(images, [64, 64])
+            print(f"Resized image shape: {images.shape}")
             images = images.to(device)
             
             # Process text tokens
