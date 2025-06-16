@@ -6,10 +6,15 @@ import numpy as np
 from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
-from torch.amp import autocast, GradScaler
+from torch.cuda.amp import autocast, GradScaler
 from torchvision.transforms.functional import resize
 
 from celeba_dataset import CelebA_Dataset, get_celeba_dataloader
+
+import warnings
+
+# This will hide all FutureWarning messages
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Set up the device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -68,7 +73,7 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
     
     # Set up mixed precision training if fp16 is enabled
     from torch.cuda.amp import autocast, GradScaler
-    scaler = GradScaler(device_type='cuda') if options['use_fp16'] and device.type == 'cuda' else None
+    scaler = GradScaler() if options['use_fp16'] and device.type == 'cuda' else None
     
     # Outer loop for epochs with tqdm
     for epoch in tqdm(range(start_epoch, num_epochs), desc="Epochs", position=0):
