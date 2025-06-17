@@ -92,7 +92,7 @@ def main():
     dataloader = get_ffhq_dataloader(
         attr_file=attr_file_path,
         root_dir=root_dir_path,
-        batch_size=16, # You can adjust batch size
+        batch_size=32, # You can adjust batch size
         num_workers=0,
     )
 
