@@ -6,6 +6,7 @@ from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
 from torch.cuda.amp import autocast, GradScaler
+from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
 
 from ffhq_dataset import FFHQ_Dataset, get_ffhq_dataloader
@@ -102,19 +103,19 @@ def main():
     print("Starting LoRA fine-tuning...")
     train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10)
 
-    # --- NEW: MERGE AND SAVE FULL MODEL ---
-    print("\nMerging LoRA adapters into the base model...")
-    # The `merge_and_unload()` method combines the adapters with the original weights
-    # and returns a standard PyTorch model.
-    merged_model = model.merge_and_unload()
-    print("Model merged successfully.")
+    # # --- NEW: MERGE AND SAVE FULL MODEL ---
+    # print("\nMerging LoRA adapters into the base model...")
+    # # The `merge_and_unload()` method combines the adapters with the original weights
+    # # and returns a standard PyTorch model.
+    # merged_model = model.merge_and_unload()
+    # print("Model merged successfully.")
 
-    # Now, save the state dictionary of the merged model like a regular PyTorch model.
-    output_path = "glide_celeba_lora_finetuned_full.pt"
-    torch.save(merged_model.state_dict(), output_path)
+    # # Now, save the state dictionary of the merged model like a regular PyTorch model.
+    # output_path = "glide_celeba_lora_finetuned_full.pt"
+    # torch.save(merged_model.state_dict(), output_path)
 
-    print(f"\nTraining complete! Full fine-tuned model saved to '{output_path}'.")
-    print("This file contains the entire model with adapters merged and can be loaded directly.")
+    # print(f"\nTraining complete! Full fine-tuned model saved to '{output_path}'.")
+    # print("This file contains the entire model with adapters merged and can be loaded directly.")
 
 
 def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10, start_epoch=0):
@@ -136,53 +137,54 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         
         for batch in batch_progress:
             images, prompts = batch
-            images = resize(images, [64, 64])
+            images = resize(images, [64, 64], interpolation=InterpolationMode.BICUBIC)
+            print(images.shape)
             images = images.to(device)
             
-            tokens = [model.tokenizer.encode(prompt) for prompt in prompts]
-            token_data = [model.tokenizer.padded_tokens_and_mask(t, options['text_ctx']) 
-                          for t in tokens]
+        #     tokens = [model.tokenizer.encode(prompt) for prompt in prompts]
+        #     token_data = [model.tokenizer.padded_tokens_and_mask(t, options['text_ctx']) 
+        #                   for t in tokens]
             
-            tokens_batch = torch.tensor([data[0] for data in token_data], device=device)
-            mask_batch = torch.tensor([data[1] for data in token_data], device=device)
+        #     tokens_batch = torch.tensor([data[0] for data in token_data], device=device)
+        #     mask_batch = torch.tensor([data[1] for data in token_data], device=device)
             
-            t = torch.randint(0, diffusion.num_timesteps, (images.shape[0],), device=device)
-            noise = torch.randn_like(images)
-            noisy_images = diffusion.q_sample(images, t, noise=noise)
+        #     t = torch.randint(0, diffusion.num_timesteps, (images.shape[0],), device=device)
+        #     noise = torch.randn_like(images)
+        #     noisy_images = diffusion.q_sample(images, t, noise=noise)
             
-            with autocast(enabled=options['use_fp16'] and device.type == 'cuda'):
-                model_output = model(noisy_images, t, tokens=tokens_batch, mask=mask_batch)
+        #     with autocast(enabled=options['use_fp16'] and device.type == 'cuda'):
+        #         model_output = model(noisy_images, t, tokens=tokens_batch, mask=mask_batch)
                 
-                # The model output might have extra channels (for variance). We only need the first 3 for noise prediction.
-                # In PEFT, the output is sometimes a tuple. We take the first element.
-                if isinstance(model_output, tuple):
-                    model_output = model_output[0]
+        #         # The model output might have extra channels (for variance). We only need the first 3 for noise prediction.
+        #         # In PEFT, the output is sometimes a tuple. We take the first element.
+        #         if isinstance(model_output, tuple):
+        #             model_output = model_output[0]
 
-                predicted_noise = model_output[:, :3, :, :]
-                loss = torch.nn.functional.mse_loss(predicted_noise, noise)
+        #         predicted_noise = model_output[:, :3, :, :]
+        #         loss = torch.nn.functional.mse_loss(predicted_noise, noise)
             
-            optimizer.zero_grad()
-            if scaler is not None:
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                optimizer.step()
+        #     optimizer.zero_grad()
+        #     if scaler is not None:
+        #         scaler.scale(loss).backward()
+        #         scaler.step(optimizer)
+        #         scaler.update()
+        #     else:
+        #         loss.backward()
+        #         optimizer.step()
             
-            total_loss += loss.item()
-            batch_count += 1
+        #     total_loss += loss.item()
+        #     batch_count += 1
             
-            batch_progress.set_postfix({"loss": loss.item()})
+        #     batch_progress.set_postfix({"loss": loss.item()})
         
-        avg_loss = total_loss / batch_count if batch_count > 0 else 0
-        tqdm.write(f"Epoch {epoch+1} complete, Average Loss: {avg_loss:.6f}")
+        # avg_loss = total_loss / batch_count if batch_count > 0 else 0
+        # tqdm.write(f"Epoch {epoch+1} complete, Average Loss: {avg_loss:.6f}")
         
-        # --- MODIFIED CHECKPOINT SAVING ---
-        if (epoch + 1) % 5 == 0:
-            checkpoint_dir = f"lora_checkpoint_epoch_{epoch+1}"
-            model.save_pretrained(checkpoint_dir)
-            tqdm.write(f"LoRA checkpoint saved to {checkpoint_dir}")
+        # # --- MODIFIED CHECKPOINT SAVING ---
+        # if (epoch + 1) % 5 == 0:
+        #     checkpoint_dir = f"lora_checkpoint_epoch_{epoch+1}"
+        #     model.save_pretrained(checkpoint_dir)
+        #     tqdm.write(f"LoRA checkpoint saved to {checkpoint_dir}")
 
 if __name__ == "__main__":
     main()
