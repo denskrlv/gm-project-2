@@ -14,6 +14,7 @@ MODEL_PATHS = {
     "upsample-inpaint": "https://openaipublic.blob.core.windows.net/diffusion/dec-2021/upsample_inpaint.pt",
     "clip/image-enc": "https://openaipublic.blob.core.windows.net/diffusion/dec-2021/clip_image_enc.pt",
     "clip/text-enc": "https://openaipublic.blob.core.windows.net/diffusion/dec-2021/clip_text_enc.pt",
+    "glide_faces": "models/glide_faces.pt"
 }
 
 
@@ -65,7 +66,12 @@ def load_checkpoint(
         raise ValueError(
             f"Unknown checkpoint name {checkpoint_name}. Known names are: {MODEL_PATHS.keys()}."
         )
-    path = fetch_file_cached(
-        MODEL_PATHS[checkpoint_name], progress=progress, cache_dir=cache_dir, chunk_size=chunk_size
-    )
+    if checkpoint_name == "glide_faces":
+        if not os.path.exists(MODEL_PATHS[checkpoint_name]):
+            raise FileNotFoundError(f"Model file {MODEL_PATHS[checkpoint_name]} does not exist.")
+        path = MODEL_PATHS[checkpoint_name]
+    else:
+        path = fetch_file_cached(
+            MODEL_PATHS[checkpoint_name], progress=progress, cache_dir=cache_dir, chunk_size=chunk_size
+        )
     return th.load(path, map_location=device)

@@ -6,10 +6,10 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 
-class CelebA_Dataset(Dataset):
+class FFHQ_Dataset(Dataset):
     def __init__(self, root_dir, attr_file, image_size=256, transform=None, debug=False):
         """
-        CelebA dataset loader that properly handles CSV attribute files
+        FFHQ dataset loader that properly handles CSV attribute files
         
         Args:
             root_dir: Root directory containing the images
@@ -93,7 +93,7 @@ class CelebA_Dataset(Dataset):
             for path in possible_paths:
                 print(f"- {path}")
                 
-        print(f"Loaded CelebA dataset with {len(self.attr_df)} images and {len(self.selected_attrs)} selected attributes")
+        print(f"Loaded FFHQ dataset with {len(self.attr_df)} images and {len(self.selected_attrs)} selected attributes")
         
         # Base transforms
         self.base_transform = transforms.Compose([
@@ -139,7 +139,6 @@ class CelebA_Dataset(Dataset):
     
     def create_prompt(self, attrs):
         """Create a text prompt based on image attributes"""
-        # For gender, default to "person" if attribute not found
         if 'Male' in attrs:
             if attrs['Male'] == 1:
                 prompt = "a photo of a man"
@@ -162,11 +161,8 @@ class CelebA_Dataset(Dataset):
             
         return prompt
 
-def get_celeba_dataloader(root_dir, attr_file, batch_size=4, num_workers=0, debug=False):
-    """Create a DataLoader for the CelebA dataset"""
-    dataset = CelebA_Dataset(root_dir, attr_file, debug=debug)
-    
-    # Start with num_workers=0 for debugging
+def get_ffhq_dataloader(root_dir, attr_file, batch_size=4, num_workers=0, debug=False):
+    dataset = FFHQ_Dataset(root_dir, attr_file, debug=debug)
     dataloader = DataLoader(
         dataset, 
         batch_size=batch_size, 

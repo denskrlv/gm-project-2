@@ -4,12 +4,13 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
+import argparse
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
 from glide_text2im.download import load_checkpoint
 from torch.cuda.amp import autocast, GradScaler
 from torchvision.transforms.functional import resize
 
-from celeba_dataset import CelebA_Dataset, get_celeba_dataloader
+from ffhq_dataset import FFHQ_Dataset, get_ffhq_dataloader
 
 import warnings
 
@@ -21,6 +22,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 def main():
+    # Add argument parser to support checkpoint loading
+    parser = argparse.ArgumentParser(description='Fine-tune GLIDE model')
+    parser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint file to resume training from')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train for')
+    args = parser.parse_args()
+    
     # --- START OF THE FIX ---
     # Get the absolute path to the directory where fine_tune.py is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,31 +49,54 @@ def main():
     print("Creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(**options)
 
-    print("Loading checkpoint...")
-    model.load_state_dict(load_checkpoint('base', device))
+    # Set up optimizer
+    print("Setting up optimizer...")
+    optimizer = Adam(model.parameters(), lr=1e-5)
+    
+    # Initialize start_epoch
+    start_epoch = 0
+    
+    # Load from checkpoint if specified
+    if args.checkpoint and os.path.exists(args.checkpoint):
+        print(f"Loading checkpoint from {args.checkpoint}...")
+        checkpoint = torch.load(args.checkpoint, map_location=device)
+        
+        # Load model state
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        # Load optimizer state
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Get the starting epoch
+        start_epoch = checkpoint['epoch'] + 1
+        
+        print(f"Resuming training from epoch {start_epoch}")
+    else:
+        print("Loading base model checkpoint...")
+        model.load_state_dict(load_checkpoint('base', device))
+    
+    # Move model to device
     model.to(device)
     model.train()
 
     # Create dataset and dataloader USING THE NEW ABSOLUTE PATHS
     print("Creating dataset...")
-    dataloader = get_celeba_dataloader(
+    dataloader = get_ffhq_dataloader(
         attr_file=attr_file_path,
         root_dir=root_dir_path,
         batch_size=16,
         num_workers=0, # Keep this at 0 for now
     )
 
-    # Set up optimizer
-    print("Setting up optimizer...")
-    optimizer = Adam(model.parameters(), lr=1e-5)
-
     # Train
     print("Starting training...")
-    train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10)
+    train(model, diffusion, dataloader, optimizer, device, options, 
+          num_epochs=args.epochs, start_epoch=start_epoch)
 
-    # Save model
-    torch.save(model.state_dict(), "glide_celeba_finetuned.pt")
-    print("Training complete and model saved!")
+    # Save final model
+    final_model_path = "glide_celeba_finetuned.pt"
+    torch.save(model.state_dict(), final_model_path)
+    print(f"Training complete and model saved to {final_model_path}!")
 
 def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10, start_epoch=0):
     """Train GLIDE on the CelebA dataset with tqdm progress tracking"""
@@ -76,14 +106,14 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
     scaler = GradScaler() if options['use_fp16'] and device.type == 'cuda' else None
     
     # Outer loop for epochs with tqdm
-    for epoch in tqdm(range(start_epoch, num_epochs), desc="Epochs", position=0):
+    for epoch in tqdm(range(start_epoch, start_epoch + num_epochs), desc="Epochs", position=0):
         total_loss = 0
         batch_count = 0
         
         # Create progress bar for batches
         batch_progress = tqdm(
             dataloader, 
-            desc=f"Epoch {epoch+1}/{num_epochs}", 
+            desc=f"Epoch {epoch+1}/{start_epoch+num_epochs}", 
             leave=False, 
             position=1
         )
@@ -141,7 +171,7 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         tqdm.write(f"Epoch {epoch+1} complete, Average Loss: {avg_loss:.6f}")
         
         # Save checkpoint
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 5 == 0 or epoch == start_epoch + num_epochs - 1:
             checkpoint_path = f"glide_celeba_checkpoint_epoch_{epoch+1}.pt"
             torch.save({
                 'epoch': epoch,

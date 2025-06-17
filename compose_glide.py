@@ -17,7 +17,7 @@ from utils import get_gpu, prepare_prompt
 
 class ComposeGlide:
     
-    def __init__(self, device=None, verbose: bool=True):
+    def __init__(self, model_name='base', device=None, verbose: bool=True):
         if device is None:
             self.device = get_gpu()
         else:
@@ -26,10 +26,11 @@ class ComposeGlide:
         self.verbose = verbose
 
         self.base_options = model_and_diffusion_defaults()
+        self.base_options['inpaint'] = (model_name == 'base-inpaint')
         self.base_options['use_fp16'] = (self.device.type == 'cuda')
         self.base_options['timestep_respacing'] = '100' # As in notebook
         self.base_model, self.base_diffusion = self._load_model_internal(
-            model_name='base',
+            model_name=model_name,
             options=self.base_options
         )
 
@@ -151,8 +152,19 @@ class ComposeGlide:
             show_plot: Whether to display the plot
         """
         # Convert image tensor to numpy for visualization
+        image_tensor = image_tensor.cpu()
+        
+        # Handle different possible input formats
+        if len(image_tensor.shape) == 4:  # [batch, channels, height, width]
+            image_tensor = image_tensor.squeeze(0)
+        
+        if len(image_tensor.shape) == 2:  # [height, width] (grayscale)
+            # Convert grayscale to RGB
+            image_tensor = image_tensor.unsqueeze(0).repeat(3, 1, 1)
+        
+        # Now tensor should have shape [channels, height, width]
         image_array = ((image_tensor + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        image_array = image_array.permute(1, 2, 0).cpu().numpy()
+        image_array = image_array.permute(1, 2, 0).numpy()
         
         # Check if we have any attention data
         if not attention_data:
@@ -388,71 +400,71 @@ class ComposeGlide:
         self.base_model.del_cache()
         return final_sample_guided, collected_attention_over_timesteps
     
-    def _upsample_internal(self, base_samples, prompts_for_upsampling, upsample_temp, progress=True, save_intermediate_steps: int = None, image_idx_start: int = 0, prompt_for_filename: str = "prompt"):
-        if isinstance(prompts_for_upsampling, list):
-            upsample_prompt_text = " ".join(prompts_for_upsampling)
-        else:
-            upsample_prompt_text = prompts_for_upsampling
+    # def _upsample_internal(self, base_samples, prompts_for_upsampling, upsample_temp, progress=True, save_intermediate_steps: int = None, image_idx_start: int = 0, prompt_for_filename: str = "prompt"):
+    #     if isinstance(prompts_for_upsampling, list):
+    #         upsample_prompt_text = " ".join(prompts_for_upsampling)
+    #     else:
+    #         upsample_prompt_text = prompts_for_upsampling
 
-        tokens = self.up_model.tokenizer.encode(upsample_prompt_text)
-        tokens, mask = self.up_model.tokenizer.padded_tokens_and_mask(
-            tokens, self.up_options['text_ctx']
-        )
+    #     tokens = self.up_model.tokenizer.encode(upsample_prompt_text)
+    #     tokens, mask = self.up_model.tokenizer.padded_tokens_and_mask(
+    #         tokens, self.up_options['text_ctx']
+    #     )
 
-        num_samples_to_upsample = base_samples.shape[0]
+    #     num_samples_to_upsample = base_samples.shape[0]
 
-        model_kwargs = dict(
-            low_res=((base_samples + 1) * 127.5).round() / 127.5 - 1,
-            tokens=th.tensor(
-                [tokens] * num_samples_to_upsample, device=self.device
-            ),
-            mask=th.tensor(
-                [mask] * num_samples_to_upsample,
-                dtype=th.bool,
-                device=self.device,
-            ),
-        )
+    #     model_kwargs = dict(
+    #         low_res=((base_samples + 1) * 127.5).round() / 127.5 - 1,
+    #         tokens=th.tensor(
+    #             [tokens] * num_samples_to_upsample, device=self.device
+    #         ),
+    #         mask=th.tensor(
+    #             [mask] * num_samples_to_upsample,
+    #             dtype=th.bool,
+    #             device=self.device,
+    #         ),
+    #     )
 
-        self.up_model.del_cache()
-        up_shape = (num_samples_to_upsample, 3, self.up_options["image_size"], self.up_options["image_size"])
+    #     self.up_model.del_cache()
+    #     up_shape = (num_samples_to_upsample, 3, self.up_options["image_size"], self.up_options["image_size"])
         
-        iter_count = 0
-        final_up_samples = None
-        collected_attention_over_timesteps = [] # To store attention maps
+    #     iter_count = 0
+    #     final_up_samples = None
+    #     collected_attention_over_timesteps = [] # To store attention maps
 
-        self.collected_attention_weights = []
+    #     self.collected_attention_weights = []
 
-        for out in self.up_diffusion.ddim_sample_loop_progressive(
-            self.up_model,
-            up_shape,
-            noise=th.randn(up_shape, device=self.device) * upsample_temp,
-            device=self.device,
-            clip_denoised=True,
-            progress=progress,
-            model_kwargs=model_kwargs,
-            eta=0.0 
-        ):
-            final_up_samples = out["sample"]
+    #     for out in self.up_diffusion.ddim_sample_loop_progressive(
+    #         self.up_model,
+    #         up_shape,
+    #         noise=th.randn(up_shape, device=self.device) * upsample_temp,
+    #         device=self.device,
+    #         clip_denoised=True,
+    #         progress=progress,
+    #         model_kwargs=model_kwargs,
+    #         eta=0.0 
+    #     ):
+    #         final_up_samples = out["sample"]
             
-            if save_intermediate_steps and save_intermediate_steps > 0 and iter_count % save_intermediate_steps == 0:
-                if self.collected_attention_weights:
-                    timestep_tensor = out.get("t", None)
-                    current_diffusion_step = None
-                    if isinstance(timestep_tensor, th.Tensor) and timestep_tensor.numel() > 0:
-                        current_diffusion_step = timestep_tensor[0].item()
-                    else:
-                        current_diffusion_step = iter_count
+    #         if save_intermediate_steps and save_intermediate_steps > 0 and iter_count % save_intermediate_steps == 0:
+    #             if self.collected_attention_weights:
+    #                 timestep_tensor = out.get("t", None)
+    #                 current_diffusion_step = None
+    #                 if isinstance(timestep_tensor, th.Tensor) and timestep_tensor.numel() > 0:
+    #                     current_diffusion_step = timestep_tensor[0].item()
+    #                 else:
+    #                     current_diffusion_step = iter_count
                     
-                    collected_attention_over_timesteps.append({
-                        'step': current_diffusion_step,
-                        'maps': self.collected_attention_weights.copy()
-                    })
-                    # Reset for next iteration
-                    self.collected_attention_weights = []
-            iter_count += 1
+    #                 collected_attention_over_timesteps.append({
+    #                     'step': current_diffusion_step,
+    #                     'maps': self.collected_attention_weights.copy()
+    #                 })
+    #                 # Reset for next iteration
+    #                 self.collected_attention_weights = []
+    #         iter_count += 1
             
-        self.up_model.del_cache()
-        return final_up_samples, collected_attention_over_timesteps
+    #     self.up_model.del_cache()
+    #     return final_up_samples, collected_attention_over_timesteps
 
     def generate(self, prompt_text: str, num_images: int = 1, upsample: bool = False, 
              upsample_temp: float = 0.997, 
