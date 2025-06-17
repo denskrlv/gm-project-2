@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -8,6 +9,7 @@ from glide_text2im.download import load_checkpoint
 from torch.cuda.amp import autocast, GradScaler
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
+import torchvision.utils as vutils
 
 from ffhq_dataset import FFHQ_Dataset, get_ffhq_dataloader
 
@@ -117,6 +119,36 @@ def main():
     # print(f"\nTraining complete! Full fine-tuned model saved to '{output_path}'.")
     # print("This file contains the entire model with adapters merged and can be loaded directly.")
 
+def save_image_comparison(original_images, resized_images, batch_idx, epoch, save_dir="image_samples"):
+    """
+    Save a grid of original and resized images for comparison
+    
+    Args:
+        original_images: Tensor of original images [batch_size, channels, height, width]
+        resized_images: Tensor of resized images [batch_size, channels, 64, 64]
+        batch_idx: Current batch index
+        epoch: Current epoch
+        save_dir: Directory to save images
+    """
+    # Create directory if it doesn't exist
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Select up to 4 images to save (to avoid saving too many)
+    n_images = min(4, original_images.size(0))
+    
+    # Clone images to CPU for saving
+    orig_images = original_images[:n_images].detach().cpu()
+    resized_imgs = resized_images[:n_images].detach().cpu()
+    
+    # Save original images
+    filename = f"{save_dir}/epoch_{epoch}_batch_{batch_idx}_original.png"
+    vutils.save_image(orig_images, filename, normalize=True, nrow=n_images)
+    
+    # Save resized images
+    filename = f"{save_dir}/epoch_{epoch}_batch_{batch_idx}_resized_64x64.png"
+    vutils.save_image(resized_imgs, filename, normalize=True, nrow=n_images)
+    
+    print(f"Saved image comparison for epoch {epoch}, batch {batch_idx}")
 
 def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10, start_epoch=0):
     """Train GLIDE on the CelebA dataset with tqdm progress tracking"""
@@ -135,11 +167,20 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
             position=1
         )
         
-        for batch in batch_progress:
+        for batch_idx, batch in enumerate(batch_progress):
             images, prompts = batch
-            images = resize(images, [64, 64], interpolation=InterpolationMode.BICUBIC)
-            print(images.shape)
-            images = images.to(device)
+            
+            # Save the original images before resizing
+            original_images = images.clone()
+            
+            # Resize the images
+            resized_images = resize(images, [64, 64])
+            images = resized_images.to(device)
+            
+            # Save image comparison every 100 batches and on the first batch of each epoch
+            if batch_idx % 100 == 0 or batch_idx == 0:
+                save_image_comparison(original_images, resized_images, batch_idx, epoch)
+            break
             
         #     tokens = [model.tokenizer.encode(prompt) for prompt in prompts]
         #     token_data = [model.tokenizer.padded_tokens_and_mask(t, options['text_ctx']) 
