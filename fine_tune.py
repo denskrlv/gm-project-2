@@ -101,7 +101,7 @@ def main():
 
     # Train
     print("Starting LoRA fine-tuning...")
-    train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10)
+    train(model, diffusion, dataloader, optimizer, device, options, num_epochs=20)
 
     # --- NEW: MERGE AND SAVE FULL MODEL ---
     print("\nMerging LoRA adapters into the base model...")
