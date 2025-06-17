@@ -134,7 +134,7 @@ def save_image_comparison(original_images, resized_images, batch_idx, epoch, sav
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     
     # Select up to 4 images to save (to avoid saving too many)
-    n_images = min(4, original_images.size(0))
+    n_images = min(6, original_images.size(0))
     
     # Clone images to CPU for saving
     orig_images = original_images[:n_images].detach().cpu()
