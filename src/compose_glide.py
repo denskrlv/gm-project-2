@@ -12,7 +12,7 @@ from glide_text2im.model_creation import (
     model_and_diffusion_defaults_upsampler
 )
 from glide_text2im.unet import QKVAttention
-from src.utils import get_gpu, prepare_prompt
+from utils import get_gpu, prepare_prompt
 
 
 class ComposeGlide:
