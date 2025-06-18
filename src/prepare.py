@@ -1,5 +1,5 @@
 import kagglehub
-from compose_glide import ComposeGlide
+from src.compose_glide import ComposeGlide
 
 
 compose_glide = ComposeGlide(verbose=True)

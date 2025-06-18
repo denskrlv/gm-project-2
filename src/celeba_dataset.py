@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 
-class FFHQ_Dataset(Dataset):
+class CelebA_Dataset(Dataset):
     def __init__(self, root_dir, attr_file, image_size=256, transform=None, debug=False):
         """
         FFHQ dataset loader that properly handles CSV attribute files
@@ -162,7 +162,7 @@ class FFHQ_Dataset(Dataset):
         return prompt
 
 def get_ffhq_dataloader(root_dir, attr_file, batch_size=4, num_workers=0, debug=False):
-    dataset = FFHQ_Dataset(root_dir, attr_file, debug=debug)
+    dataset = CelebA_Dataset(root_dir, attr_file, debug=debug)
     dataloader = DataLoader(
         dataset, 
         batch_size=batch_size, 
