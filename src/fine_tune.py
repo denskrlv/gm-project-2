@@ -1,5 +1,6 @@
 import os
 import torch
+import argparse
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -39,9 +40,27 @@ def print_trainable_parameters(model):
     )
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    attr_file_path = "/home/deniskrylov/.cache/kagglehub/datasets/kushsheth/face-vae/versions/1/list_attr_celeba.csv"
-    root_dir_path = "/home/deniskrylov/.cache/kagglehub/datasets/kushsheth/face-vae/versions/1/img_align_celeba/img_align_celeba"
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Train GLIDE with LoRA on face images")
+    parser.add_argument("--checkpoint", type=str, default=None, 
+                        help="Path to checkpoint directory to resume training from")
+    parser.add_argument("--num_epochs", type=int, default=20, 
+                        help="Number of epochs to train")
+    parser.add_argument("--checkpoint_freq", type=int, default=5, 
+                        help="Save checkpoint every N epochs")
+    parser.add_argument("--dataset", type=str, 
+                        default="/home/deniskrylov/.cache/kagglehub/datasets/kushsheth/face-vae/versions/1", 
+                        help="Path to root directory containing images")
+    parser.add_argument("--checkpoint_dir", type=str, default="checkpoints", 
+                        help="Directory to save checkpoints")
+    args = parser.parse_args()
+    
+    # Create checkpoint directory if it doesn't exist
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
+    
+    # Construct paths based on the dataset argument
+    attr_file_path = os.path.join(args.dataset, "list_attr_celeba.csv")
+    root_dir_path = os.path.join(args.dataset, "img_align_celeba", "img_align_celeba")
 
     # Create and configure model
     options = model_and_diffusion_defaults()
@@ -55,74 +74,90 @@ def main():
     print("Loading checkpoint...")
     model.load_state_dict(load_checkpoint('base', device))
     model.to(device)
-    # No need to call model.train() yet, we do it after wrapping with PEFT
 
-    # --- START OF LORA MODIFICATION ---
-    print("\nOriginal model trainable parameters:")
-    print_trainable_parameters(model)
-
-    # 1. Define the LoRA configuration
-    # r: The rank of the update matrices. Lower rank means fewer parameters. 8 is a good starting point.
-    # lora_alpha: LoRA scaling factor. A common setting is 2*r.
-    # target_modules: The names of the layers to apply LoRA to. In GLIDE, 'qkv' is the main linear
-    #                 projection in the self-attention blocks. This is the most effective place to adapt.
-    # lora_dropout: Dropout probability for LoRA layers.
+    # Define the LoRA configuration
     config = LoraConfig(
         r=8,
         lora_alpha=16,
-        target_modules=["qkv", "c_proj"], # Target Query-Key-Value and output projections in attention
+        target_modules=["qkv", "c_proj"],
         lora_dropout=0.1,
-        bias="none", # We only train the LoRA weights, not the bias terms
+        bias="none",
     )
 
-    # 2. Wrap the model with PEFT
-    # This freezes all original weights and injects the trainable LoRA adapters.
+    # Apply LoRA to the model
     print("\nApplying LoRA configuration...")
     model = get_peft_model(model, config)
     
     print("\nModel with LoRA adapters trainable parameters:")
-    print_trainable_parameters(model) # You will see a massive reduction here!
-    # --- END OF LORA MODIFICATION ---
+    print_trainable_parameters(model)
     
-    model.train() # Now set the model to training mode
+    model.train()
 
     # Create dataset and dataloader
     print("\nCreating dataset...")
     dataloader = get_ffhq_dataloader(
         attr_file=attr_file_path,
         root_dir=root_dir_path,
-        batch_size=24, # You can adjust batch size
+        batch_size=24,
         num_workers=0,
     )
 
     # Set up optimizer
     print("Setting up optimizer...")
-    # The optimizer will automatically only update the trainable LoRA parameters
-    optimizer = AdamW(model.parameters(), lr=1e-4, betas=(0.9, 0.999)) # We can often use a slightly HIGHER LR with LoRA
+    optimizer = AdamW(model.parameters(), lr=1e-4, betas=(0.9, 0.999))
+    
+    start_epoch = 0
+    best_loss = float('inf')
+    
+    # Load checkpoint if specified
+    if args.checkpoint:
+        print(f"Loading checkpoint from {args.checkpoint}...")
+        checkpoint = torch.load(os.path.join(args.checkpoint, "checkpoint.pt"))
+        
+        # Load adapter weights
+        model.load_adapter(args.checkpoint, 'default')
+        
+        # Load optimizer state
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        
+        # Resume from saved epoch
+        start_epoch = checkpoint['epoch'] + 1
+        best_loss = checkpoint['best_loss']
+        print(f"Resuming from epoch {start_epoch}, best loss: {best_loss:.6f}")
 
     # Train
-    print("Starting LoRA fine-tuning...")
-    train(model, diffusion, dataloader, optimizer, device, options, num_epochs=20)
+    print(f"Starting LoRA fine-tuning from epoch {start_epoch}...")
+    final_epoch, best_loss = train(
+        model, 
+        diffusion, 
+        dataloader, 
+        optimizer, 
+        device, 
+        options, 
+        num_epochs=args.num_epochs, 
+        start_epoch=start_epoch,
+        checkpoint_dir=args.checkpoint_dir,
+        checkpoint_freq=args.checkpoint_freq,
+        best_loss=best_loss
+    )
 
-    # --- NEW: MERGE AND SAVE FULL MODEL ---
+    # --- MERGE AND SAVE FULL MODEL ---
     print("\nMerging LoRA adapters into the base model...")
-    # The `merge_and_unload()` method combines the adapters with the original weights
-    # and returns a standard PyTorch model.
     merged_model = model.merge_and_unload()
     print("Model merged successfully.")
 
-    # Now, save the state dictionary of the merged model like a regular PyTorch model.
-    output_path = "glide_celeba_lora_finetuned_full.pt"
+    # Save the state dictionary of the merged model
+    output_path = os.path.join(args.checkpoint_dir, "glide_celeba_lora_finetuned_full.pt")
     torch.save(merged_model.state_dict(), output_path)
 
     print(f"\nTraining complete! Full fine-tuned model saved to '{output_path}'.")
-    print("This file contains the entire model with adapters merged and can be loaded directly.")
 
 
-def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=10, start_epoch=0):
-    """Train GLIDE on the CelebA dataset with tqdm progress tracking"""
+def train(model, diffusion, dataloader, optimizer, device, options, 
+          num_epochs=10, start_epoch=0, checkpoint_dir="checkpoints", 
+          checkpoint_freq=5, best_loss=float('inf')):
+    """Train GLIDE on the CelebA dataset with checkpoint support"""
     
-    from torch.cuda.amp import autocast, GradScaler
     scaler = GradScaler() if options['use_fp16'] and device.type == 'cuda' else None
     
     for epoch in tqdm(range(start_epoch, num_epochs), desc="Epochs", position=0):
@@ -155,8 +190,6 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
             with autocast(enabled=options['use_fp16'] and device.type == 'cuda'):
                 model_output = model(noisy_images, t, tokens=tokens_batch, mask=mask_batch)
                 
-                # The model output might have extra channels (for variance). We only need the first 3 for noise prediction.
-                # In PEFT, the output is sometimes a tuple. We take the first element.
                 if isinstance(model_output, tuple):
                     model_output = model_output[0]
 
@@ -180,11 +213,42 @@ def train(model, diffusion, dataloader, optimizer, device, options, num_epochs=1
         avg_loss = total_loss / batch_count if batch_count > 0 else 0
         tqdm.write(f"Epoch {epoch+1} complete, Average Loss: {avg_loss:.6f}")
         
-        # --- MODIFIED CHECKPOINT SAVING ---
-        if (epoch + 1) % 5 == 0:
-            checkpoint_dir = f"lora_checkpoint_epoch_{epoch+1}"
-            model.save_pretrained(checkpoint_dir)
-            tqdm.write(f"LoRA checkpoint saved to {checkpoint_dir}")
+        # Update best loss
+        is_best = avg_loss < best_loss
+        if is_best:
+            best_loss = avg_loss
+        
+        # Save checkpoint
+        if (epoch + 1) % checkpoint_freq == 0 or is_best or epoch == num_epochs - 1:
+            checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch+1}")
+            os.makedirs(checkpoint_path, exist_ok=True)
+            
+            # Save the LoRA adapter weights
+            model.save_pretrained(checkpoint_path)
+            
+            # Save optimizer state, epoch, and loss info
+            checkpoint = {
+                'epoch': epoch,
+                'best_loss': best_loss,
+                'optimizer': optimizer.state_dict()
+            }
+            
+            torch.save(checkpoint, os.path.join(checkpoint_path, "checkpoint.pt"))
+            tqdm.write(f"Checkpoint saved to {checkpoint_path}")
+            
+            # If this is the best model so far, create a symlink or copy
+            if is_best:
+                best_path = os.path.join(checkpoint_dir, "best")
+                if os.path.exists(best_path):
+                    import shutil
+                    shutil.rmtree(best_path)
+                
+                # Save as best model
+                model.save_pretrained(best_path)
+                torch.save(checkpoint, os.path.join(best_path, "checkpoint.pt"))
+                tqdm.write(f"Best model saved (loss: {best_loss:.6f})")
+    
+    return num_epochs, best_loss
 
 if __name__ == "__main__":
     main()
