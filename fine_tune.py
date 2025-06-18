@@ -47,7 +47,7 @@ def main():
     options = model_and_diffusion_defaults()
     options['use_fp16'] = True
     options['timestep_respacing'] = '1000'
-    options['noise_schedule'] = 'cosine'
+    options['noise_schedule'] = 'squared_cos_cap_v2'
 
     print("Creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(**options)
