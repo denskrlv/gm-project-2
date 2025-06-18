@@ -1,6 +1,6 @@
 import os
 import torch
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from glide_text2im.model_creation import create_model_and_diffusion, model_and_diffusion_defaults
@@ -46,7 +46,8 @@ def main():
     # Create and configure model
     options = model_and_diffusion_defaults()
     options['use_fp16'] = True
-    options['timestep_respacing'] = '100'
+    options['timestep_respacing'] = '1000'
+    options['noise_schedule'] = 'cosine'
 
     print("Creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(**options)
@@ -97,7 +98,7 @@ def main():
     # Set up optimizer
     print("Setting up optimizer...")
     # The optimizer will automatically only update the trainable LoRA parameters
-    optimizer = Adam(model.parameters(), lr=1e-4) # We can often use a slightly HIGHER LR with LoRA
+    optimizer = AdamW(model.parameters(), lr=1e-4, betas=(0.9, 0.999)) # We can often use a slightly HIGHER LR with LoRA
 
     # Train
     print("Starting LoRA fine-tuning...")
